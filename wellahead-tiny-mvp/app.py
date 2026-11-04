@@ -11,7 +11,6 @@ from assistant import ACTIONS, ANSWERS, ROOT, change_slot, clock, facts, new_rev
 load_dotenv(ROOT / ".env")
 STORE = ROOT / "var" / "latest-review.json"
 st.set_page_config(page_title="WellAhead — Tomorrow, made manageable", layout="wide")
-st.title("Tomorrow, made manageable")
 
 if "review" not in st.session_state or st.session_state.get("ui_version") != 3:
     review = restore(STORE)
@@ -42,116 +41,137 @@ def persist(review):
 
 
 def timeline(context, window, slot, review):
-    start, end, height = (540, 1020, 640) if window == "daytime" else (1200, 1320, 130)
-    scale = height / (end-start)
+    start, end = (540, 1020) if window == "daytime" else (1200, 1320)
+    position = lambda value: 100 * (value-start) / (end-start)
     blocks = []
     for tick in range(start, end+1, 60):
-        blocks.append(f'<div class="hour" style="top:{(tick-start)*scale}px"><span>{clock(tick)}</span></div>')
+        blocks.append(f'<div class="hour" style="top:{position(tick)}%"><span>{clock(tick)}</span></div>')
     for left, right in context[window]["busy"]:
-        blocks.append(f'<div class="busy" style="top:{(left-start)*scale}px;height:{(right-left)*scale}px">Busy</div>')
+        blocks.append(f'<div class="busy" title="Busy {clock(left)}–{clock(right)}" style="top:{position(left)}%;height:{position(right)-position(left)}%">Busy</div>')
     if slot and slot["window"] == window:
         accepted = review["state"] == "accepted"
         label = "Confirmed" if accepted else "Suggested"
         action = ACTIONS[review["action_id"]]
         color = "#167a55" if accepted else "#305bc2"
         style = "solid" if accepted else "dashed"
-        blocks.append(f'<div class="action" style="top:{(slot["start"]-start)*scale}px;height:{action["minutes"]*scale}px;border-style:{style};border-color:{color};background:{color}20"><div class="action-label">{label}<br>{escape(action["category"])} · {action["minutes"]} min<br>{clock(slot["start"])}–{clock(slot["end"])}</div></div>')
-    st.html(f'<div class="timeline" style="height:{height+20}px">' + "".join(blocks) + '</div>')
+        blocks.append(f'<div class="action" style="top:{position(slot["start"])}%;height:{position(slot["end"])-position(slot["start"])}%;border-style:{style};border-color:{color};background:{color}20"><div class="action-label">{label} · {action["minutes"]} min<br>{escape(action["category"])} · {clock(slot["start"])}–{clock(slot["end"])}</div></div>')
+    st.html(f'<div class="timeline {window}">' + "".join(blocks) + '</div>')
 
 
 st.html('''<style>
-.timeline {position:relative;margin:14px 0 8px;font:13px system-ui;color:#263247}
+[data-testid="stMainBlockContainer"] {padding:3.6rem 2rem .75rem;max-width:1600px}
+[data-testid="stVerticalBlock"] {gap:.5rem}
+[data-testid="stHeadingWithActionElements"] h2 {font-size:1.65rem;padding:0;line-height:1.2}
+[data-testid="stHeadingWithActionElements"] h3 {font-size:1.2rem;padding:0;line-height:1.2}
+[data-testid="stMarkdownContainer"] p {margin-bottom:.2rem;font-size:.9rem}
+[data-testid="stCaptionContainer"] p {font-size:.78rem;line-height:1.35}
+[data-testid="stDivider"] {margin:.2rem 0}
+[data-testid="stAlert"] {padding:.35rem .65rem}
+.timeline {position:relative;margin:12px 0 16px;font:12px system-ui;color:#263247}
+.timeline.daytime {height:clamp(200px,calc(100dvh - 450px),400px)}
+.timeline.evening {height:90px}
 .hour {position:absolute;left:0;right:0;border-top:1px solid #cbd5e1;height:1px}
-.hour span {position:absolute;top:-9px;background:white;padding-right:7px}
-.busy,.action {position:absolute;left:60px;width:calc(100% - 230px);box-sizing:border-box}
-.busy {background:#e6e9ed;border:1px solid #c4cad3;border-radius:3px;padding:0 5px;font-size:11px;line-height:12px;color:#263247;overflow:hidden}
+.hour span {position:absolute;top:-8px;background:white;padding-right:7px}
+.busy,.action {position:absolute;left:52px;width:calc(100% - 225px);box-sizing:border-box}
+.busy {background:#e6e9ed;border:1px solid #c4cad3;border-radius:3px;padding:0 5px;font-size:10px;line-height:11px;color:#263247;overflow:hidden}
+.evening .busy {font-size:9px;line-height:9px}
 .action {border-width:2px;border-radius:2px}
-.action-label {position:absolute;left:calc(100% + 12px);top:-10px;width:158px;font-size:12px;font-weight:600;color:#263247;background:white}
+.action-label {position:absolute;left:calc(100% + 10px);top:-8px;width:162px;font-size:11px;line-height:1.2;font-weight:600;color:#263247;background:white}
+@media (max-width:900px) {[data-testid="stMainBlockContainer"] {padding-left:1rem;padding-right:1rem}}
 </style>''')
-with st.sidebar:
-    st.subheader("Settings")
+header, settings = st.columns([7, 1], vertical_alignment="center")
+with header:
+    st.markdown("## Tomorrow, made manageable")
+with settings:
+    settings_panel = st.popover("Settings", use_container_width=True)
+with settings_panel:
     scripted = st.checkbox("Scripted mode", value=os.getenv("WELLAHEAD_SCRIPTED", "false").lower() == "true")
     if st.button("Start over"):
         STORE.unlink(missing_ok=True)
         st.session_state.clear()
         st.rerun()
 
-calendar_control, sleep_control = st.columns(2)
-with calendar_control:
-    scenario = st.radio("Your day", ["Packed day", "Lighter day"], horizontal=True, key="scenario", on_change=invalidate)
-with sleep_control:
-    sleep_context = st.radio("Recorded wearable context", ["Usual sleep", "Shorter sleep"], horizontal=True, key="sleep_context", on_change=invalidate)
+scenario = st.session_state.scenario
+sleep_context = st.session_state.sleep_context
 context = facts(scenario, sleep_context)
 review = st.session_state.review
 slot = review["current_slot"] if review else None
 tomorrow = date.fromisoformat(st.session_state.review_date) + timedelta(days=1)
 st.caption(f"Tomorrow · {tomorrow.strftime('%A, %d %B')}")
 
-left, right = st.columns([1.1, 1], gap="large")
+left, right = st.columns([1, 1.25], gap="large")
 with left:
-    st.subheader(f"{scenario} · {tomorrow.strftime('%a %d %b')}")
     scheduled = context["daytime"]["scheduled_minutes"]
-    st.write(f"**Scheduled time, 09:00–17:00: {scheduled // 60}h {scheduled % 60:02d}m**")
+    st.markdown(f"**{scenario} · 09:00–17:00** · {scheduled // 60}h {scheduled % 60:02d}m scheduled")
     timeline(context, "daytime", slot, review)
-    st.write("**Evening: 20:00–22:00** · 45 minutes scheduled")
+    st.caption("**Evening · 20:00–22:00** · 45 minutes scheduled")
     timeline(context, "evening", slot, review)
-    if slot and st.button("View suggestion"):
-        st.session_state.highlight = True
-        st.rerun()
-    with st.expander("Exact calendar intervals"):
-        for window in ("daytime", "evening"):
-            st.write("**" + window.capitalize() + "**")
-            for start, end in context[window]["busy"]:
-                st.write(f"Busy: {clock(start)}–{clock(end)}")
-            for gap in context[window]["gaps"]:
-                st.write(f"Available gap: {clock(gap['start'])}–{clock(gap['end'])} ({gap['end']-gap['start']} minutes)")
+    calendar_details, view = st.columns([3, 2], vertical_alignment="top")
+    with view:
+        if slot and st.button("View suggestion", use_container_width=True):
+            st.session_state.highlight = True
+            st.rerun()
+    with calendar_details:
+        with st.expander("Calendar details"):
+            for window in ("daytime", "evening"):
+                st.write("**" + window.capitalize() + "**")
+                for start, end in context[window]["busy"]:
+                    st.write(f"Busy: {clock(start)}–{clock(end)}")
+                for gap in context[window]["gaps"]:
+                    st.write(f"Gap: {clock(gap['start'])}–{clock(gap['end'])}")
 
 with right:
     with st.container(border=True):
         st.subheader("Plan tomorrow")
-        st.write(f"**Recorded steps:** previous week median {context['previous_median']:,.0f}; recent week median {context['recent_median']:,.0f}.")
-        st.write(f"**Recorded sleep:** last night {context['sleep_hours']} hours; usual {context['usual_sleep_hours']} hours.")
-        stress = st.radio("How stressed do you expect to feel tomorrow?", ANSWERS, index=None, key="stress", on_change=invalidate)
+        calendar_control, sleep_control = st.columns(2)
+        with calendar_control:
+            st.radio("Day", ["Packed day", "Lighter day"], horizontal=True, key="scenario", on_change=invalidate)
+        with sleep_control:
+            st.radio("Sleep", ["Usual sleep", "Shorter sleep"], horizontal=True, key="sleep_context", on_change=invalidate)
+        st.caption(f"**Steps (weekly medians):** {context['previous_median']:,.0f} → {context['recent_median']:,.0f} · **Sleep:** {context['sleep_hours']}h last night / {context['usual_sleep_hours']}h usual")
+        question, submit = st.columns([4, 1.4], vertical_alignment="bottom")
+        with question:
+            stress = st.radio("How stressed do you expect to feel tomorrow?", ANSWERS, horizontal=True, index=None, key="stress", on_change=invalidate)
+        with submit:
+            request_review = st.button("Get suggestion", disabled=stress is None, type="primary", use_container_width=True)
         st.caption("Your expectation, not a wearable measurement.")
-        if st.button("Get suggestion", disabled=stress is None, type="primary"):
+        if request_review:
             with st.spinner("Finding a suggestion…"):
                 result, mode = suggest(stress, context, scripted)
             updated = new_review(context, stress, result, mode)
             st.session_state.review_date = updated["review_date"]
             persist(updated)
-    if review:
-        if st.session_state.highlight:
-            st.html('<style>.st-key-suggestion_card {outline:3px solid #305bc2;outline-offset:3px;border-radius:8px}</style>')
-        with st.container(border=True, key="suggestion_card"):
-            st.subheader("Your suggestion")
+        if review:
+            st.divider()
             if st.session_state.highlight:
-                st.caption("Selected suggestion")
-            if review["processing_mode"] == "unavailable_preview":
-                st.warning("AI unavailable — showing a scripted preview")
-            st.caption("AI suggestion" if review["processing_mode"] == "llm" else "Scripted preview")
-            st.write(review["explanation"])
-            if review["state"] == "no-slot":
-                st.info("No other suitable time available.")
-            elif review["state"] == "held":
-                st.info("No suggestion for now.")
-            elif review["state"] == "skipped":
-                st.info("Suggestion skipped.")
-            else:
-                action = ACTIONS[review["action_id"]]
-                st.write(f"**{action['title']}**")
-                st.caption(f"{action['category']} · {action['minutes']} minutes · {slot['window'].capitalize()}")
-                st.write(f"{tomorrow.isoformat()} · {clock(slot['start'])}–{clock(slot['end'])}")
-                if review["state"] == "accepted":
-                    st.success("Confirmed")
+                st.html('<style>.st-key-suggestion_card {outline:2px solid #305bc2;outline-offset:5px;border-radius:4px}</style>')
+            with st.container(key="suggestion_card"):
+                mode = "AI suggestion" if review["processing_mode"] == "llm" else "Scripted preview"
+                if review["processing_mode"] == "unavailable_preview":
+                    st.caption("AI unavailable · Scripted preview")
                 else:
-                    st.info("Suggested")
-                    if st.button("This time works"):
+                    st.caption(mode)
+                if review["state"] == "no-slot":
+                    st.markdown("**No other suitable time available.**")
+                elif review["state"] == "held":
+                    st.markdown("**No suggestion for now.**")
+                elif review["state"] == "skipped":
+                    st.markdown("**Suggestion skipped.**")
+                else:
+                    action = ACTIONS[review["action_id"]]
+                    st.markdown(f"**{action['title']}**")
+                    status = "Confirmed" if review["state"] == "accepted" else "Suggested"
+                    st.caption(f"{status} · {action['category']} · {action['minutes']} min · {clock(slot['start'])}–{clock(slot['end'])}")
+                st.write(review["explanation"])
+                if review["state"] == "pending":
+                    accept, alternate, skip = st.columns([1.2, 1.3, .7])
+                    if accept.button("This time works", use_container_width=True):
                         persist({**review, "state": "accepted"})
-                    if st.button("Find another gap"):
+                    if alternate.button("Find another gap", use_container_width=True):
                         persist(change_slot(review, context))
-                    if st.button("Skip"):
+                    if skip.button("Skip", use_container_width=True):
                         persist({**review, "state": "skipped", "current_slot": None})
-            with st.expander("Why this suggestion?"):
-                st.write(f"**Recorded wearable context:** step medians {context['previous_median']:,.0f} and {context['recent_median']:,.0f}; {sleep_context.lower()}, {context['sleep_hours']} hours versus {context['usual_sleep_hours']} usual hours.")
-                st.write(f"**Scheduled commitments:** {scenario}, {scheduled} daytime minutes and {context['evening']['scheduled_minutes']} evening minutes.")
-                st.write(f"**Your expected stress:** {review['answer']}.")
+                with st.expander("Why this suggestion?"):
+                    st.write(f"**Wearable context:** step medians {context['previous_median']:,.0f} and {context['recent_median']:,.0f}; {sleep_context.lower()}, {context['sleep_hours']}h versus {context['usual_sleep_hours']}h usual.")
+                    st.write(f"**Schedule:** {scenario}, {scheduled} daytime minutes and {context['evening']['scheduled_minutes']} evening minutes.")
+                    st.write(f"**Your expected stress:** {review['answer']}.")
