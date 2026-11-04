@@ -1,0 +1,76 @@
+{
+  "version": "tomorrow-made-manageable-v3",
+  "previous_steps": [
+    7000,
+    7500,
+    8000,
+    7200,
+    7800,
+    7500,
+    7600
+  ],
+  "recent_steps": [
+    4000,
+    4500,
+    5000,
+    4200,
+    4800,
+    4500,
+    4600
+  ],
+  "usual_sleep_hours": 7,
+  "wear_context": "Usual wear throughout, self-reported in this fictional example.",
+  "adult_context": "Fictional adult with no reported activity restriction; already comfortable taking an easy walk. This is an example assumption, not screening.",
+  "planning_window": [
+    "09:00",
+    "17:00"
+  ],
+  "scenarios": {
+    "Packed day": [
+      [
+        "09:00",
+        "12:30"
+      ],
+      [
+        "12:45",
+        "15:00"
+      ],
+      [
+        "15:10",
+        "17:00"
+      ]
+    ],
+    "Lighter day": [
+      [
+        "09:00",
+        "10:00"
+      ],
+      [
+        "11:00",
+        "12:00"
+      ],
+      [
+        "14:00",
+        "15:00"
+      ]
+    ]
+  },
+  "sleep_contexts": {
+    "Usual sleep": 7,
+    "Shorter sleep": 6
+  },
+  "evening_window": [
+    "20:00",
+    "22:00"
+  ],
+  "evening_busy": [
+    [
+      "20:00",
+      "20:30"
+    ],
+    [
+      "21:00",
+      "21:15"
+    ]
+  ]
+}
