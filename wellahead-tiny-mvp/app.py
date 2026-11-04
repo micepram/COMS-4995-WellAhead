@@ -6,13 +6,13 @@ from html import escape
 import streamlit as st
 from dotenv import load_dotenv
 
-from assistant import ACTIONS, ANSWERS, ROOT, change_slot, clock, facts, new_review, restore, save, suggest
+from assistant import ACTIONS, ANSWERS, ROOT, answer_text, change_slot, clock, facts, new_review, restore, save, suggest
 
 load_dotenv(ROOT / ".env")
 STORE = ROOT / "var" / "latest-review.json"
 st.set_page_config(page_title="WellAhead — Tomorrow, made manageable", layout="wide")
 
-if "review" not in st.session_state or st.session_state.get("ui_version") != 3:
+if "review" not in st.session_state or st.session_state.get("ui_version") != 5:
     review = restore(STORE)
     st.session_state.review = review
     st.session_state.scenario = review["scenario"] if review else "Packed day"
@@ -20,7 +20,7 @@ if "review" not in st.session_state or st.session_state.get("ui_version") != 3:
     st.session_state.stress = review["answer"] if review else None
     st.session_state.review_date = review["review_date"] if review else date.today().isoformat()
     st.session_state.highlight = False
-    st.session_state.ui_version = 3
+    st.session_state.ui_version = 5
 
 
 def invalidate():
@@ -79,12 +79,16 @@ st.html('''<style>
 .action-label {position:absolute;left:calc(100% + 10px);top:-8px;width:162px;font-size:11px;line-height:1.2;font-weight:600;color:#263247;background:white}
 @media (max-width:900px) {[data-testid="stMainBlockContainer"] {padding-left:1rem;padding-right:1rem}}
 </style>''')
-header, settings = st.columns([7, 1], vertical_alignment="center")
+for field in ("scenario", "sleep_context", "stress"):
+    st.session_state[field] = st.session_state[field]
+
+header, settings = st.columns([8, 1.2], vertical_alignment="center")
 with header:
     st.markdown("## Tomorrow, made manageable")
 with settings:
     settings_panel = st.popover("Settings", use_container_width=True)
 with settings_panel:
+    st.radio("Calendar schedule", ["Packed day", "Lighter day"], key="scenario", on_change=invalidate)
     scripted = st.checkbox("Scripted mode", value=os.getenv("WELLAHEAD_SCRIPTED", "false").lower() == "true")
     if st.button("Start over"):
         STORE.unlink(missing_ok=True)
@@ -102,9 +106,11 @@ st.caption(f"Tomorrow · {tomorrow.strftime('%A, %d %B')}")
 left, right = st.columns([1, 1.25], gap="large")
 with left:
     scheduled = context["daytime"]["scheduled_minutes"]
-    st.markdown(f"**{scenario} · 09:00–17:00** · {scheduled // 60}h {scheduled % 60:02d}m scheduled")
+    fullness = "Packed" if scheduled > 240 else "Lighter"
+    st.markdown(f"**Calendar · {fullness} · 09:00–17:00** · {scheduled // 60}h {scheduled % 60:02d}m busy · **{(480-scheduled)//60}h {(480-scheduled)%60:02d}m free**")
     timeline(context, "daytime", slot, review)
-    st.caption("**Evening · 20:00–22:00** · 45 minutes scheduled")
+    evening_scheduled = context["evening"]["scheduled_minutes"]
+    st.caption(f"**Evening · 20:00–22:00** · {evening_scheduled//60}h {evening_scheduled%60:02d}m busy · **{(120-evening_scheduled)//60}h {(120-evening_scheduled)%60:02d}m free")
     timeline(context, "evening", slot, review)
     calendar_details, view = st.columns([3, 2], vertical_alignment="top")
     with view:
@@ -123,12 +129,8 @@ with left:
 with right:
     with st.container(border=True):
         st.subheader("Plan tomorrow")
-        calendar_control, sleep_control = st.columns(2)
-        with calendar_control:
-            st.radio("Day", ["Packed day", "Lighter day"], horizontal=True, key="scenario", on_change=invalidate)
-        with sleep_control:
-            st.radio("Sleep", ["Usual sleep", "Shorter sleep"], horizontal=True, key="sleep_context", on_change=invalidate)
-        st.caption(f"**Steps (weekly medians):** {context['previous_median']:,.0f} → {context['recent_median']:,.0f} · **Sleep:** {context['sleep_hours']}h last night / {context['usual_sleep_hours']}h usual")
+        st.radio("Sleep", ["Usual sleep", "Shorter sleep"], horizontal=True, key="sleep_context", on_change=invalidate)
+        st.caption(f"**Wearable context (example):** steps {context['previous_median']:,.0f} → {context['recent_median']:,.0f} median · sleep {context['sleep_hours']}h / {context['usual_sleep_hours']}h usual · resting HR {context['resting_heart_rate_bpm']} bpm · HRV {context['daily_hrv_ms']:g} ms")
         question, submit = st.columns([4, 1.4], vertical_alignment="bottom")
         with question:
             stress = st.radio("How stressed do you expect to feel tomorrow?", ANSWERS, horizontal=True, index=None, key="stress", on_change=invalidate)
@@ -175,3 +177,16 @@ with right:
                     st.write(f"**Wearable context:** step medians {context['previous_median']:,.0f} and {context['recent_median']:,.0f}; {sleep_context.lower()}, {context['sleep_hours']}h versus {context['usual_sleep_hours']}h usual.")
                     st.write(f"**Schedule:** {scenario}, {scheduled} daytime minutes and {context['evening']['scheduled_minutes']} evening minutes.")
                     st.write(f"**Your expected stress:** {review['answer']}.")
+
+    with st.container(border=True):
+        st.subheader("Have a question?")
+        st.caption('Try: “I’m expecting a stressful day. What small break could fit my schedule?”')
+        question = st.text_input("Your question", max_chars=500, placeholder="Type a question about your day")
+        if st.button("Get an answer", disabled=not question.strip(), use_container_width=True):
+            with st.spinner("Thinking…"):
+                text_answer, answer_mode = answer_text(question, context, st.session_state.stress, scripted)
+            st.session_state.text_answer = text_answer
+            st.session_state.text_answer_mode = answer_mode
+        if st.session_state.get("text_answer"):
+            st.caption("Agent response")
+            st.write(st.session_state.text_answer)

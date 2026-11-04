@@ -1,5 +1,5 @@
 {
-  "version": "tomorrow-made-manageable-v3",
+  "version": "tomorrow-made-manageable-v5",
   "previous_steps": [
     7000,
     7500,
@@ -19,6 +19,8 @@
     4600
   ],
   "usual_sleep_hours": 7,
+  "resting_heart_rate_bpm": 75,
+  "daily_hrv_ms": 24.55,
   "wear_context": "Usual wear throughout, self-reported in this fictional example.",
   "adult_context": "Fictional adult with no reported activity restriction; already comfortable taking an easy walk. This is an example assumption, not screening.",
   "planning_window": [
